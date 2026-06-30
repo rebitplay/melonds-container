@@ -40,3 +40,9 @@ out.txt
 
 # Python
 venv*
+
+# Container demo
+container/server/node_modules/
+container/roms/
+container/runtime/
+container/.env

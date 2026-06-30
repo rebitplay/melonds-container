@@ -1,0 +1,16 @@
+services:
+  melonds-room:
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
+    image: rebitplay/melonds-container:local
+    environment:
+      PORT: 8787
+      ROM_PATH: /roms/demo.nds
+      ROOM_CONFIG: /app/room-config.json
+    ports:
+      - "8787:8787/tcp"
+      - "8443:8443/udp"
+    volumes:
+      - ./roms:/roms:ro
+      - ./runtime:/runtime

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rebit melonDS LAN Room</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>melonDS LAN Room</h1>
+          <p id="room-state">Checking room...</p>
+        </div>
+        <div class="actions">
+          <button id="refresh" type="button" title="Refresh room">Refresh</button>
+          <button id="start" type="button" title="Start room">Start</button>
+        </div>
+      </header>
+
+      <section id="players" class="players" aria-label="Player streams"></section>
+    </main>
+
+    <template id="player-template">
+      <article class="player">
+        <div class="screen">
+          <video autoplay playsinline muted></video>
+          <div class="placeholder">
+            <strong></strong>
+            <span></span>
+          </div>
+        </div>
+        <footer>
+          <span class="label"></span>
+          <span class="status"></span>
+        </footer>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

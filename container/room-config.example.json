@@ -1,0 +1,21 @@
+{
+  "roomId": "demo",
+  "title": "melonDS LAN demo",
+  "players": 4,
+  "romPath": "/roms/demo.nds",
+  "corePath": "/opt/melonds/melondsds_libretro.so",
+  "runtimePath": "/runtime",
+  "webrtc": {
+    "singlePort": 8443,
+    "iceServers": []
+  },
+  "coreOptions": {
+    "melonds_touch_mode": "touch"
+  },
+  "slots": [
+    {"slot": 1, "label": "Player 1", "runtimePath": "/runtime/player-1"},
+    {"slot": 2, "label": "Player 2", "runtimePath": "/runtime/player-2"},
+    {"slot": 3, "label": "Player 3", "runtimePath": "/runtime/player-3"},
+    {"slot": 4, "label": "Player 4", "runtimePath": "/runtime/player-4"}
+  ]
+}
