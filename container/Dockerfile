@@ -30,7 +30,12 @@ RUN cmake -S . -B /build -G Ninja \
     cmake --build /build --config Release && \
     mkdir -p /out && \
     find /build -name '*melondsds*libretro*.so' -exec cp {} /out/melondsds_libretro.so \; && \
-    test -f /out/melondsds_libretro.so
+    test -f /out/melondsds_libretro.so && \
+    gcc -std=c17 -O2 -Wall -Wextra -Wno-format-truncation \
+      -I /build/_deps/libretro-common-src/include \
+      /src/container/runner/lan_room_runner.c \
+      -ldl \
+      -o /out/melonds-lan-room-runner
 
 FROM node:22-bookworm-slim AS room
 
@@ -51,6 +56,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 WORKDIR /app
 
 COPY --from=core-builder /out/melondsds_libretro.so /opt/melonds/melondsds_libretro.so
+COPY --from=core-builder /out/melonds-lan-room-runner /opt/melonds/melonds-lan-room-runner
 COPY container/server/package.json ./server/package.json
 RUN cd server && npm install --omit=dev
 

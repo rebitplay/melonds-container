@@ -12,11 +12,13 @@ stream one player view per user, and expose a browser demo page.
 - `server/` serves the index and exposes the room/signaling contract.
 - `room-config.example.json` defines one demo room with four emulator slots.
 - `Dockerfile` builds the core and packages the room server.
+- `runner/lan_room_runner.c` is a native proof runner for 2-4 colocated melonDS
+  libretro instances with a room-local netpacket switch.
 
-The native runner still has to be wired in. It must implement libretro netpacket routing,
-audio/video capture, and WebRTC publishing for each player slot. The existing `cloud-game`
-frontend does not implement `RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`, so melonDS LAN will
-not work there by configuration alone.
+The proof runner boots isolated core processes, wires
+`RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`, creates per-player save/system dirs,
+captures video/audio callback counts, and routes libretro netpackets between slots.
+WebRTC publishing is still the next integration step.
 
 ## ROMs
 
@@ -42,12 +44,54 @@ ROM_PATH=../roms/demo.nds npm start
 
 Open `http://localhost:8787`.
 
+## Local 2-Player LAN Proof
+
+This compiles the native proof runner with `gcc`, starts two melonDS libretro core
+processes, and routes packets between them in one room process.
+
+```sh
+container/run-lan2-demo.sh
+```
+
+By default, the wrapper uses Rebit's local core and homebrew test ROM paths:
+
+```text
+CORE_PATH=../cloud-game/assets/cores/melondsds_libretro.so
+ROM_PATH=../cloud-game/assets/games/nds/blocksds-local-multiplayer.nds
+```
+
+You can override either path:
+
+```sh
+ROM_PATH=/path/to/test.nds FRAMES=300 container/run-lan2-demo.sh
+```
+
+After both cores report ready, the runner injects one labelled netpacket probe
+through each child process. That validates the frontend send callback, parent
+switch, peer receive callback, and per-slot runtime isolation even if the loaded
+ROM does not enter its local multiplayer flow without UI input. Disable the probe
+with `MELONDS_RUNNER_NO_PROBE=1` when testing game-generated traffic only.
+
+Useful success lines:
+
+```text
+[slot 1] core info: Starting multiplayer on libretro side
+[slot 2] core info: Starting multiplayer on libretro side
+[room] netpacket totals: sent=2 received=2
+```
+
+The Docker image packages the same proof runner at:
+
+```text
+/opt/melonds/melonds-lan-room-runner
+```
+
 ## Container Shape
 
 ```text
 room container
   server/server.mjs        HTTP + WebSocket signaling contract
-  native room-runner       TODO: 2-4 melonDS instances
+  native room-runner       2-4 melonDS instances + netpacket switch
   melondsds_libretro.so    built from this repo
   /roms/demo.nds           mounted legal test ROM
   /runtime/player-1        save/system/runtime dir

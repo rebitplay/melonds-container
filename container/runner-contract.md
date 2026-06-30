@@ -17,28 +17,40 @@ melonds-room-runner \
   --control /run/rebit-room.sock
 ```
 
-The first implementation should use separate OS processes for each player instance. That avoids
-the global-libretro-state problem while we validate melonDS LAN behavior.
+The proof implementation in `runner/lan_room_runner.c` uses separate OS processes for
+each player instance. That avoids the global-libretro-state problem while validating
+melonDS LAN behavior.
 
 ## Required Native Pieces
 
-1. Libretro frontend support for `RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`.
-2. A room-local netpacket switch:
+1. Libretro frontend support for `RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`. Implemented in the proof runner.
+2. A room-local netpacket switch. Implemented in the proof runner:
    - assigns client IDs `1..N`
    - broadcasts `RETRO_NETPACKET_BROADCAST`
    - routes unicast replies by client ID
    - supports unreliable/unsequenced packets immediately
-   - treats reliable packets as ordered delivery
-3. Per-player runtime dirs:
+   - treats reliable packets as ordered delivery once the production transport needs buffering
+3. Per-player runtime dirs. Implemented in the proof runner:
    - save directory
    - system directory
    - firmware identity/user name/MAC where supported
-4. Per-player media path:
+4. Per-player media path. Video/audio callbacks are counted in the proof runner; encoding is still TODO:
    - video callback -> encoder -> WebRTC video track
    - audio callback -> encoder -> WebRTC audio track
-5. Per-player input path:
+5. Per-player input path. Basic scripted retropad input exists in the proof runner; browser input is still TODO:
    - browser data channel -> retropad/touch/mic state for that player
    - set `melonds_touch_mode=touch` or `auto` so browser pointer input is used
+
+## Current Proof Command
+
+```sh
+container/run-lan2-demo.sh
+```
+
+The command compiles `runner/lan_room_runner.c`, starts two instances by default,
+and injects one labelled netpacket probe through each child process after both
+instances report ready. Disable the probe with `MELONDS_RUNNER_NO_PROBE=1` when
+testing only game-generated local multiplayer packets.
 
 ## Control Socket
 
@@ -115,8 +127,9 @@ rendered video element.
 
 ## Done Criteria For The Native Runner
 
-- Four instances boot the same `.nds` file.
-- melonDS DS logs show multiplayer netpacket callbacks started.
-- Each player gets a unique WebRTC stream.
-- Local multiplayer lobby can see all players with the instances colocated.
-- Stopping the room saves per-slot data and exits all emulator processes.
+- 2-4 instances boot the same `.nds` file. Proof runner supports this.
+- melonDS DS logs show multiplayer netpacket callbacks started. Proof runner supports this.
+- Netpacket switch can route packets between colocated instances. Proof runner supports this with a labelled probe.
+- Each player gets a unique WebRTC stream. TODO.
+- Local multiplayer lobby can see all players with the instances colocated. TODO; requires game-specific UI/input flow validation.
+- Stopping the room saves per-slot data and exits all emulator processes. Proof runner supports process cleanup.
