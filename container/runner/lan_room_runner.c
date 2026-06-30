@@ -31,6 +31,8 @@
 #define MAX_OPTIONS 256
 #define MAX_PACKET_SIZE 65536
 #define DEFAULT_FRAMES 900
+#define INPUT_MAGIC 0x504e4952U
+#define STREAM_FRAME_DIVISOR 3
 
 struct wire_header {
     uint32_t magic;
@@ -56,6 +58,15 @@ struct player_stats {
     uint64_t received_bytes;
     uint64_t video_frames;
     uint64_t audio_frames;
+};
+
+struct __attribute__((packed)) input_snapshot {
+    uint32_t magic;
+    uint16_t buttons;
+    int16_t pointer_x;
+    int16_t pointer_y;
+    uint8_t pointer_pressed;
+    uint8_t reserved[7];
 };
 
 struct core_api {
@@ -94,10 +105,17 @@ struct child_context {
     char username[32];
     char system_dir[PATH_MAX];
     char save_dir[PATH_MAX];
+    char stream_path[PATH_MAX];
+    char stream_tmp_path[PATH_MAX];
+    char input_path[PATH_MAX];
     bool shutdown_requested;
     bool netpacket_ready;
     enum retro_pixel_format pixel_format;
     uint16_t joypad_mask;
+    uint16_t external_buttons;
+    int16_t pointer_x;
+    int16_t pointer_y;
+    uint8_t pointer_pressed;
     struct player_stats stats;
 };
 
@@ -190,7 +208,6 @@ static struct runner_config parse_args(int argc, char** argv) {
     if (!cfg.rom_path[0]) die_usage(argv[0], "--rom is required");
     if (!cfg.runtime_dir[0]) die_usage(argv[0], "--runtime is required");
     if (cfg.players < 2 || cfg.players > MAX_PLAYERS) die_usage(argv[0], "--players must be between 2 and 4");
-    if (cfg.frames == 0) die_usage(argv[0], "--frames must be greater than 0");
     return cfg;
 }
 
@@ -282,6 +299,22 @@ static bool send_message(int fd, uint16_t type, uint16_t src, uint16_t dst, uint
     if (!write_all(fd, &header, sizeof(header))) return false;
     if (len == 0) return true;
     return write_all(fd, data, len);
+}
+
+static void put_u16le(unsigned char* out, uint16_t value) {
+    out[0] = (unsigned char)(value & 0xff);
+    out[1] = (unsigned char)((value >> 8) & 0xff);
+}
+
+static void put_u32le(unsigned char* out, uint32_t value) {
+    out[0] = (unsigned char)(value & 0xff);
+    out[1] = (unsigned char)((value >> 8) & 0xff);
+    out[2] = (unsigned char)((value >> 16) & 0xff);
+    out[3] = (unsigned char)((value >> 24) & 0xff);
+}
+
+static void put_i32le(unsigned char* out, int32_t value) {
+    put_u32le(out, (uint32_t)value);
 }
 
 static bool recv_exact(int fd, void* data, size_t len) {
@@ -548,12 +581,70 @@ static bool environment_cb(unsigned cmd, void* data) {
 }
 
 static void video_cb(const void* data, unsigned width, unsigned height, size_t pitch) {
-    (void)data;
-    (void)pitch;
     g_child->stats.video_frames++;
     if (g_child->stats.video_frames == 1) {
         fprintf(stderr, "[slot %u] first video frame %ux%u\n", g_child->slot, width, height);
     }
+    if (!data || data == RETRO_HW_FRAME_BUFFER_VALID || width == 0 || height == 0) return;
+    if ((g_child->stats.video_frames % STREAM_FRAME_DIVISOR) != 1) return;
+
+    const size_t row_stride = (width * 3u + 3u) & ~3u;
+    const size_t image_size = row_stride * height;
+    const size_t file_size = 54u + image_size;
+    unsigned char* bmp = malloc(file_size);
+    if (!bmp) return;
+    memset(bmp, 0, file_size);
+
+    bmp[0] = 'B';
+    bmp[1] = 'M';
+    put_u32le(bmp + 2, (uint32_t)file_size);
+    put_u32le(bmp + 10, 54);
+    put_u32le(bmp + 14, 40);
+    put_u32le(bmp + 18, width);
+    put_i32le(bmp + 22, -(int32_t)height);
+    put_u16le(bmp + 26, 1);
+    put_u16le(bmp + 28, 24);
+    put_u32le(bmp + 34, (uint32_t)image_size);
+
+    for (unsigned y = 0; y < height; y++) {
+        const unsigned char* src = (const unsigned char*)data + (size_t)y * pitch;
+        unsigned char* dst = bmp + 54u + (size_t)y * row_stride;
+        for (unsigned x = 0; x < width; x++) {
+            unsigned r = 0;
+            unsigned g = 0;
+            unsigned b = 0;
+            if (g_child->pixel_format == RETRO_PIXEL_FORMAT_XRGB8888) {
+                uint32_t p;
+                memcpy(&p, src + (size_t)x * 4u, sizeof(p));
+                r = (p >> 16) & 0xff;
+                g = (p >> 8) & 0xff;
+                b = p & 0xff;
+            } else {
+                uint16_t p;
+                memcpy(&p, src + (size_t)x * 2u, sizeof(p));
+                if (g_child->pixel_format == RETRO_PIXEL_FORMAT_RGB565) {
+                    r = ((p >> 11) & 0x1f) * 255u / 31u;
+                    g = ((p >> 5) & 0x3f) * 255u / 63u;
+                    b = (p & 0x1f) * 255u / 31u;
+                } else {
+                    r = ((p >> 10) & 0x1f) * 255u / 31u;
+                    g = ((p >> 5) & 0x1f) * 255u / 31u;
+                    b = (p & 0x1f) * 255u / 31u;
+                }
+            }
+            dst[(size_t)x * 3u + 0] = (unsigned char)b;
+            dst[(size_t)x * 3u + 1] = (unsigned char)g;
+            dst[(size_t)x * 3u + 2] = (unsigned char)r;
+        }
+    }
+
+    FILE* file = fopen(g_child->stream_tmp_path, "wb");
+    if (file) {
+        fwrite(bmp, 1, file_size, file);
+        fclose(file);
+        rename(g_child->stream_tmp_path, g_child->stream_path);
+    }
+    free(bmp);
 }
 
 static void audio_cb(int16_t left, int16_t right) {
@@ -577,6 +668,9 @@ static int16_t input_state_cb(unsigned port, unsigned device, unsigned index, un
     if (device == RETRO_DEVICE_JOYPAD && id <= RETRO_DEVICE_ID_JOYPAD_R3) {
         return (g_child->joypad_mask & (1u << id)) ? 1 : 0;
     }
+    if (device == RETRO_DEVICE_POINTER && id == RETRO_DEVICE_ID_POINTER_X) return g_child->pointer_x;
+    if (device == RETRO_DEVICE_POINTER && id == RETRO_DEVICE_ID_POINTER_Y) return g_child->pointer_y;
+    if (device == RETRO_DEVICE_POINTER && id == RETRO_DEVICE_ID_POINTER_PRESSED) return g_child->pointer_pressed ? 1 : 0;
     if (device == RETRO_DEVICE_POINTER) return 0;
     return 0;
 }
@@ -603,6 +697,19 @@ static void child_send_cb(int flags, const void* buf, size_t len, uint16_t clien
         ctx->stats.sent_packets++;
         ctx->stats.sent_bytes += len;
     }
+}
+
+static void read_input_snapshot(struct child_context* ctx) {
+    FILE* file = fopen(ctx->input_path, "rb");
+    if (!file) return;
+    struct input_snapshot snapshot;
+    size_t n = fread(&snapshot, 1, sizeof(snapshot), file);
+    fclose(file);
+    if (n != sizeof(snapshot) || snapshot.magic != INPUT_MAGIC) return;
+    ctx->external_buttons = snapshot.buttons;
+    ctx->pointer_x = snapshot.pointer_x;
+    ctx->pointer_y = snapshot.pointer_y;
+    ctx->pointer_pressed = snapshot.pointer_pressed ? 1 : 0;
 }
 
 static void child_poll_receive_cb(void) {
@@ -652,13 +759,18 @@ static int run_child(struct runner_config cfg, unsigned slot, int fd) {
     snprintf(ctx.username, sizeof(ctx.username), "rebit-p%u", slot);
     snprintf(ctx.system_dir, sizeof(ctx.system_dir), "%s/player-%u/system", cfg.runtime_dir, slot);
     snprintf(ctx.save_dir, sizeof(ctx.save_dir), "%s/player-%u/save", cfg.runtime_dir, slot);
+    snprintf(ctx.stream_path, sizeof(ctx.stream_path), "%s/player-%u/latest.bmp", cfg.runtime_dir, slot);
+    snprintf(ctx.stream_tmp_path, sizeof(ctx.stream_tmp_path), "%s/player-%u/latest.bmp.tmp", cfg.runtime_dir, slot);
+    snprintf(ctx.input_path, sizeof(ctx.input_path), "%s/player-%u/input.bin", cfg.runtime_dir, slot);
     g_child = &ctx;
 
     unsigned char* rom = NULL;
     size_t rom_size = 0;
     int rc = 1;
 
-    if (mkdir_p(ctx.system_dir) != 0 || mkdir_p(ctx.save_dir) != 0) {
+    char player_dir[PATH_MAX];
+    snprintf(player_dir, sizeof(player_dir), "%s/player-%u", cfg.runtime_dir, slot);
+    if (mkdir_p(player_dir) != 0 || mkdir_p(ctx.system_dir) != 0 || mkdir_p(ctx.save_dir) != 0) {
         fprintf(stderr, "[slot %u] failed to create runtime dirs: %s\n", slot, strerror(errno));
         goto done;
     }
@@ -729,8 +841,9 @@ static int run_child(struct runner_config cfg, unsigned slot, int fd) {
     ctx.netpacket.start(client_id, child_send_cb, child_poll_receive_cb);
     send_message(ctx.fd, MSG_READY, (uint16_t)slot, 0, 0, NULL, 0);
 
-    for (unsigned frame = 0; frame < cfg.frames && !ctx.shutdown_requested; frame++) {
-        ctx.joypad_mask = scripted_buttons(frame);
+    for (unsigned frame = 0; (cfg.frames == 0 || frame < cfg.frames) && !ctx.shutdown_requested; frame++) {
+        read_input_snapshot(&ctx);
+        ctx.joypad_mask = scripted_buttons(frame) | ctx.external_buttons;
         if (ctx.frame_time.callback) {
             retro_usec_t usec = ctx.frame_time.reference > 0 ? ctx.frame_time.reference : (retro_usec_t)(1000000.0 / fps);
             ctx.frame_time.callback(usec);

@@ -3,38 +3,65 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Rebit melonDS LAN Room</title>
+    <title>Rebit melonDS 2P LAN</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>melonDS LAN Room</h1>
-          <p id="room-state">Checking room...</p>
+          <h1>melonDS 2P LAN</h1>
+          <p id="room-state">Loading room...</p>
         </div>
         <div class="actions">
-          <button id="refresh" type="button" title="Refresh room">Refresh</button>
-          <button id="start" type="button" title="Start room">Start</button>
+          <button id="start" type="button">Start</button>
+          <button id="stop" type="button">Stop</button>
+          <button id="refresh" type="button">Refresh</button>
         </div>
       </header>
 
-      <section id="players" class="players" aria-label="Player streams"></section>
+      <section class="toolbar" aria-label="Controls">
+        <div class="segmented" role="tablist" aria-label="Active player">
+          <button class="slot-tab active" type="button" data-slot="1">P1</button>
+          <button class="slot-tab" type="button" data-slot="2">P2</button>
+        </div>
+      </section>
+
+      <section id="players" class="players" aria-label="Player screens"></section>
+
+      <section class="logbar">
+        <div id="metrics"></div>
+        <pre id="logs" aria-label="Runner log"></pre>
+      </section>
     </main>
 
     <template id="player-template">
-      <article class="player">
+      <article class="player" data-slot="">
+        <header>
+          <button class="select-player" type="button"></button>
+          <span class="status">idle</span>
+        </header>
         <div class="screen">
-          <video autoplay playsinline muted></video>
+          <img alt="">
           <div class="placeholder">
-            <strong></strong>
-            <span></span>
+            <strong>Waiting for stream</strong>
+            <span>Press Start</span>
           </div>
         </div>
-        <footer>
-          <span class="label"></span>
-          <span class="status"></span>
-        </footer>
+        <div class="pad" aria-label="Touch controls">
+          <button type="button" data-button="up">Up</button>
+          <button type="button" data-button="down">Down</button>
+          <button type="button" data-button="left">Left</button>
+          <button type="button" data-button="right">Right</button>
+          <button type="button" data-button="a">A</button>
+          <button type="button" data-button="b">B</button>
+          <button type="button" data-button="x">X</button>
+          <button type="button" data-button="y">Y</button>
+          <button type="button" data-button="l">L</button>
+          <button type="button" data-button="r">R</button>
+          <button type="button" data-button="select">Select</button>
+          <button type="button" data-button="start">Start</button>
+        </div>
       </article>
     </template>
 
